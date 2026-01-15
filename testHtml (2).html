@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>K12 Verification V2</title>
+    
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- HTML2Canvas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Segoe+UI:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        /* Base Reset */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* Prevent body scroll, handle inside containers */
+            font-family: 'Segoe UI', 'Roboto', sans-serif;
+            background-color: #f0f2f5;
+        }
+        
+        /* Custom Scrollbar */
+        .custom-scroll {
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        
+        /* Collapsible Animation */
+        .collapse-content {
+            transition: max-height 0.3s ease-in-out, opacity 0.3s ease-in-out;
+            overflow: hidden;
+        }
+
+        /* Print Styles */
+        @media print {
+            @page { margin: 0; size: auto; }
+            body, html { height: auto; overflow: visible; background: white; }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            #root { height: auto; display: block; }
+            
+            /* Reset transformations for print */
+            #preview-transform-wrapper {
+                transform: none !important;
+                width: 100% !important;
+                height: auto !important;
+                margin: 0 !important;
+            }
+            .preview-container {
+                box-shadow: none !important;
+                margin: 0 !important;
+                border: none !important;
+            }
+            /* Hide the mobile split logic on print */
+            .app-container {
+                flex-direction: column;
+                height: auto;
+            }
+            .editor-pane { display: none; }
+            .preview-pane { height: auto; overflow: visible; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+
+    const { useState, useEffect, useRef } = React;
+
+    const App = () => {
+        // --- State ---
+        const [formData, setFormData] = useState({
+            fullName: "James Rhyu",
+            position: "Executive Leadership & Educational Oversight",
+            status: "ACTIVE FACULTY",
+            academicYear: "2025 - 2026 Academic Year",
+            officeName: "Herndon Office",
+            address1: "11720 Plaza America Dr, 9th Floor",
+            address2: "Herndon, VA 20190",
+            corpId: "K12-VA-2026",
+            email: "jrhyu@k12.com",
+            organization: "K12, Inc. / Stride, Inc.",
+            bio: "Welcome to the Stride K12 Educator Profile. James Rhyu leads our organizational efforts to provide high-quality, digital-first education to students across the nation. For the 2025-2026 academic year, our focus remains on expanding accessible learning programs and educator resources."
+        });
+
+        const [isSaving, setIsSaving] = useState(false);
+        const [zoomScale, setZoomScale] = useState(0.8); // Default safe scale
+        
+        // Refs
+        const previewRef = useRef(null);
+        const previewPaneRef = useRef(null);
+
+        // --- Handlers ---
+        const handleChange = (e) => {
+            const { name, value } = e.target;
+            setFormData(prev => ({ ...prev, [name]: value }));
+        };
+
+        const getInitials = (name) => {
+            if (!name) return "U";
+            const parts = name.split(" ");
+            if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+            return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+        };
+
+        // --- Layout & Zoom Logic ---
+        useEffect(() => {
+            const calculateZoom = () => {
+                if (previewPaneRef.current) {
+                    const containerWidth = previewPaneRef.current.clientWidth;
+                    const docWidth = 950; // The fixed width of our document
+                    const padding = 40;
+                    
+                    // On Mobile, the pane might be narrow
+                    let scale = (containerWidth - padding) / docWidth;
+                    
+                    // Cap scale to reasonable limits
+                    if (scale > 1) scale = 1; 
+                    if (scale < 0.3) scale = 0.3; // Prevent disappearing on tiny screens
+                    
+                    setZoomScale(scale);
+                }
+            };
+
+            // Calculate immediately and on resize
+            calculateZoom();
+            window.addEventListener('resize', calculateZoom);
+            
+            // Re-init icons
+            if (window.lucide) window.lucide.createIcons();
+
+            return () => window.removeEventListener('resize', calculateZoom);
+        }, []);
+
+        // --- Export Logic ---
+        const handlePrint = () => window.print();
+
+        const handleSaveImage = async () => {
+            if (!previewRef.current) return;
+            setIsSaving(true);
+            
+            try {
+                // Wait for render
+                await new Promise(r => setTimeout(r, 100));
+
+                const original = previewRef.current;
+                
+                // Clone strategy to ignore current zoom/scroll state
+                const clone = original.cloneNode(true);
+                
+                // Style the clone for perfect capture
+                Object.assign(clone.style, {
+                    position: 'fixed',
+                    top: '-10000px',
+                    left: '-10000px',
+                    width: '950px', // Force correct width
+                    height: 'auto',
+                    transform: 'none',
+                    zIndex: '-100'
+                });
+                
+                document.body.appendChild(clone);
+
+                const canvas = await html2canvas(clone, {
+                    scale: 2, // Retina quality
+                    useCORS: true,
+                    backgroundColor: "#ffffff",
+                    logging: false,
+                    width: 950,
+                    windowWidth: 1200
+                });
+
+                document.body.removeChild(clone);
+
+                // Download
+                const link = document.createElement('a');
+                link.download = `K12-Profile-V2-${formData.fullName.replace(/\s+/g, '-')}.png`;
+                link.href = canvas.toDataURL("image/png");
+                link.click();
+
+            } catch (err) {
+                console.error("Image Error:", err);
+                alert("Failed to generate image. Please try again.");
+            }
+            setIsSaving(false);
+        };
+
+        return (
+            <div className="app-container h-full w-full flex flex-col lg:flex-row bg-[#f0f2f5]">
+                
+                {/* ==================================================
+                    PANE 1: EDITOR (Top on Mobile, Left on PC)
+                   ================================================== */}
+                <div className="editor-pane no-print flex-shrink-0 h-[50%] lg:h-full lg:w-[420px] bg-white border-b lg:border-b-0 lg:border-r border-gray-300 flex flex-col shadow-xl z-20">
+                    
+                    {/* App Header */}
+                    <div className="p-4 border-b border-gray-200 bg-white flex justify-between items-center">
+                        <h1 className="text-lg font-bold text-[#1d2b4f] flex items-center gap-2">
+                            <i data-lucide="edit-3" className="w-5 h-5 text-[#f37021]"></i>
+                            Editor
+                        </h1>
+                        <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded border border-blue-200">
+                            K12 Verification V2
+                        </span>
+                    </div>
+
+                    {/* Form Fields */}
+                    <div className="flex-1 custom-scroll p-4 space-y-4 bg-[#fafafa]">
+                        
+                        <CollapsibleSection title="1. Identity" icon="user" defaultOpen={true}>
+                            <InputGroup label="Full Name" name="fullName" value={formData.fullName} onChange={handleChange} />
+                            <InputGroup label="Position" name="position" value={formData.position} onChange={handleChange} />
+                            <InputGroup label="Badge Status" name="status" value={formData.status} onChange={handleChange} />
+                            <InputGroup label="Academic Year" name="academicYear" value={formData.academicYear} onChange={handleChange} />
+                        </CollapsibleSection>
+
+                        <CollapsibleSection title="2. Contact" icon="map-pin" defaultOpen={false}>
+                            <InputGroup label="Office Name" name="officeName" value={formData.officeName} onChange={handleChange} />
+                            <InputGroup label="Address 1" name="address1" value={formData.address1} onChange={handleChange} />
+                            <InputGroup label="Address 2" name="address2" value={formData.address2} onChange={handleChange} />
+                            <div className="grid grid-cols-2 gap-2">
+                                <InputGroup label="Corp ID" name="corpId" value={formData.corpId} onChange={handleChange} />
+                                <InputGroup label="Email" name="email" value={formData.email} onChange={handleChange} />
+                            </div>
+                        </CollapsibleSection>
+
+                        <CollapsibleSection title="3. Biography" icon="align-left" defaultOpen={false}>
+                            <InputGroup label="Organization" name="organization" value={formData.organization} onChange={handleChange} />
+                            <div className="mt-2">
+                                <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Bio Text</label>
+                                <textarea 
+                                    name="bio" 
+                                    value={formData.bio} 
+                                    onChange={handleChange}
+                                    className="w-full text-sm p-2 border border-gray-300 rounded focus:border-[#f37021] focus:outline-none"
+                                    rows="4"
+                                ></textarea>
+                            </div>
+                        </CollapsibleSection>
+
+                        {/* Owner Badge */}
+                        <div className="mt-6 bg-[#1d2b4f] rounded-lg p-4 text-white shadow-md relative overflow-hidden text-center">
+                            <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">Owner & Developer</p>
+                            <h3 className="text-xl font-bold text-white tracking-wide">Myhaed</h3>
+                            <a href="https://t.me/Myhaed" target="_blank" className="inline-flex items-center gap-1 mt-2 text-xs text-blue-200 hover:text-white transition-colors">
+                                <i data-lucide="send" className="w-3 h-3"></i> Contact via Telegram
+                            </a>
+                        </div>
+                    </div>
+
+                    {/* Action Bar */}
+                    <div className="p-3 bg-white border-t border-gray-200 grid grid-cols-2 gap-2">
+                        <button 
+                            onClick={handleSaveImage}
+                            disabled={isSaving}
+                            className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2 rounded border border-gray-300 flex justify-center items-center gap-2 active:scale-95 transition-transform"
+                        >
+                            <i data-lucide="download" className="w-4 h-4"></i>
+                            <span className="text-xs">Save Image</span>
+                        </button>
+                        <button 
+                            onClick={handlePrint}
+                            className="bg-[#1d2b4f] hover:bg-[#2a3c6b] text-white font-bold py-2 rounded flex justify-center items-center gap-2 active:scale-95 transition-transform"
+                        >
+                            <i data-lucide="printer" className="w-4 h-4"></i>
+                            <span className="text-xs">Save PDF</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* ==================================================
+                    PANE 2: PREVIEW (Bottom on Mobile, Right on PC)
+                   ================================================== */}
+                <div ref={previewPaneRef} className="preview-pane flex-1 bg-[#d0d3d9] relative flex flex-col items-center justify-start overflow-hidden h-[50%] lg:h-full">
+                    
+                    {/* Zoom Indicator */}
+                    <div className="no-print absolute top-2 right-2 z-10 bg-black/50 text-white text-[10px] px-2 py-1 rounded backdrop-blur">
+                        Preview {(zoomScale * 100).toFixed(0)}%
+                    </div>
+
+                    {/* Scrollable Canvas Area */}
+                    <div className="w-full h-full custom-scroll flex justify-center pt-8 pb-20">
+                        
+                        {/* Scalable Transformer */}
+                        <div 
+                            id="preview-transform-wrapper"
+                            style={{ 
+                                transform: `scale(${zoomScale})`, 
+                                transformOrigin: 'top center',
+                                width: '950px',
+                                // Keep height automatic so it doesn't cut off
+                                height: 'fit-content' 
+                            }}
+                        >
+                            {/* THE ID CARD */}
+                            <div 
+                                ref={previewRef}
+                                className="preview-container bg-white w-[950px] shadow-2xl flex flex-col relative min-h-[1000px]"
+                            >
+                                {/* Browser Bar Mockup */}
+                                <div className="bg-[#dee1e6] px-4 py-2 border-b border-[#ccc] flex items-center text-xs text-[#5f6368]">
+                                    <span className="flex items-center gap-1 font-semibold mr-4 text-green-700">
+                                        <i data-lucide="lock" className="w-3 h-3"></i> Secure
+                                    </span>
+                                    <div className="bg-white px-3 py-1 rounded-full border border-[#dfe1e5] flex-1 truncate text-gray-600 font-mono text-[11px]">
+                                        https://stridelearning.com/k12/staff/{formData.fullName.toLowerCase().replace(/[^a-z0-9]/g, '-')}
+                                    </div>
+                                </div>
+
+                                {/* Stride Header */}
+                                <div className="bg-white px-10 py-6 border-b-4 border-[#f37021] flex justify-between items-center">
+                                    <div className="text-3xl font-bold text-[#1d2b4f] tracking-tight">
+                                        Stride <span className="text-[#f37021]">K12</span>
+                                    </div>
+                                    <div className="text-sm text-gray-500 font-medium">
+                                        Portal {formData.academicYear.split(' ')[0]}
+                                    </div>
+                                </div>
+
+                                {/* Content Body */}
+                                <div className="flex flex-row p-10 gap-10 flex-grow">
+                                    
+                                    {/* Sidebar */}
+                                    <div className="w-[250px] flex-shrink-0 flex flex-col gap-5">
+                                        <div className="bg-white border border-gray-200 rounded-lg p-6 text-center shadow-sm">
+                                            <div className="w-24 h-24 bg-[#1d2b4f] rounded-full mx-auto mb-4 flex items-center justify-center text-white text-2xl font-bold">
+                                                {getInitials(formData.fullName)}
+                                            </div>
+                                            <h2 className="text-lg font-bold text-[#1d2b4f] mb-1 leading-tight">{formData.fullName}</h2>
+                                            <span className="inline-block bg-green-50 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-green-200 uppercase mt-2">
+                                                {formData.status}
+                                            </span>
+                                            
+                                            <div className="mt-4 pt-4 border-t border-gray-100 text-[11px] text-gray-500 text-left space-y-1">
+                                                <p className="font-bold text-gray-700">{formData.officeName}</p>
+                                                <p>{formData.address1}</p>
+                                                <p>{formData.address2}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white border border-gray-200 rounded-lg p-4 text-sm shadow-sm">
+                                            <h4 className="font-bold text-[#1d2b4f] mb-2 text-xs uppercase">Digital Contact</h4>
+                                            <div className="mb-2">
+                                                <span className="text-[10px] text-gray-400 font-bold block">ID</span>
+                                                <span className="font-mono text-gray-800 bg-gray-50 px-1 rounded text-xs">{formData.corpId}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] text-gray-400 font-bold block">Email</span>
+                                                <span className="text-[#f37021] text-xs underline">{formData.email}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Main Info */}
+                                    <div className="flex-1">
+                                        <h1 className="text-4xl font-extrabold text-[#1d2b4f] mb-1">{formData.fullName}</h1>
+                                        <p className="text-lg text-[#f37021] font-semibold mb-6">{formData.position}</p>
+
+                                        <div className="grid grid-cols-2 gap-y-4 gap-x-6 bg-gray-50 p-5 rounded-lg border border-gray-100 mb-8">
+                                            <GridItem label="Current Term" value={formData.academicYear} />
+                                            <GridItem label="Organization" value={formData.organization} />
+                                            <GridItem label="Location" value={formData.address2.split(',')[0]} />
+                                            <GridItem label="Verification" value="Full-Time Faculty" />
+                                        </div>
+
+                                        <div className="prose text-gray-700 leading-relaxed mb-8 text-justify text-[15px]">
+                                            {formData.bio}
+                                        </div>
+
+                                        <div>
+                                            <h3 className="text-base font-bold text-[#1d2b4f] border-b border-[#f37021] pb-1 mb-4 inline-block">
+                                                Faculty Documentation
+                                            </h3>
+                                            <div className="space-y-2">
+                                                <ResourceLink label={`Employment Record ${formData.academicYear.split(' ')[0]}.pdf`} />
+                                                <ResourceLink label="Digital Curriculum Guide.pdf" />
+                                                <ResourceLink label={`Corporate ID - ${formData.fullName.split(' ').pop()}.pdf`} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Footer */}
+                                <div className="bg-[#1d2b4f] text-[#9da8be] px-10 py-8 mt-auto text-xs flex justify-between items-end">
+                                    <div>
+                                        <strong className="text-white block mb-1">Stride, Inc. (K12) HQ</strong>
+                                        <span className="block">{formData.address2}</span>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="font-bold text-white">© 2026 Stride Learning</div>
+                                        <div>Excellence in Online Education</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // --- Components ---
+
+    const CollapsibleSection = ({ title, icon, defaultOpen, children }) => {
+        const [isOpen, setIsOpen] = useState(defaultOpen);
+        return (
+            <div className="bg-white rounded border border-gray-200 overflow-hidden shadow-sm">
+                <button 
+                    onClick={() => setIsOpen(!isOpen)}
+                    className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+                >
+                    <div className="flex items-center gap-2 text-[#1d2b4f]">
+                        <i data-lucide={icon} className="w-4 h-4"></i>
+                        <span className="font-bold text-xs uppercase">{title}</span>
+                    </div>
+                    <i data-lucide="chevron-down" className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}></i>
+                </button>
+                <div className={`collapse-content ${isOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                    <div className="p-3 space-y-3 bg-white border-t border-gray-100">
+                        {children}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const InputGroup = ({ label, name, value, onChange }) => (
+        <div>
+            <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase">{label}</label>
+            <input 
+                type="text" 
+                name={name} 
+                value={value} 
+                onChange={onChange}
+                className="w-full text-xs p-2 bg-gray-50 border border-gray-300 rounded focus:bg-white focus:border-[#f37021] focus:outline-none transition-colors"
+            />
+        </div>
+    );
+
+    const GridItem = ({ label, value }) => (
+        <div>
+            <span className="block text-[10px] text-gray-400 uppercase font-bold mb-0.5">{label}</span>
+            <span className="block text-sm font-bold text-[#1d2b4f] truncate">{value}</span>
+        </div>
+    );
+
+    const ResourceLink = ({ label }) => (
+        <div className="flex items-center p-2 bg-[#fff5ef] border border-[#ffe0cc] rounded text-[#d35400] text-xs font-semibold">
+            <div className="w-5 h-5 bg-[#e74c3c] rounded text-white flex items-center justify-center text-[8px] font-bold mr-2 flex-shrink-0">PDF</div>
+            <span className="truncate">{label}</span>
+        </div>
+    );
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+
+</script>
+</body>
+</html>
+
